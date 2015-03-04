@@ -8,6 +8,10 @@ from BeautifulSoup import BeautifulSoup
 s = requests.session()
 bizTravelID = "1321_16645" #出差项目编号，报工页面写死的
 
+#测试临时用
+startDate = '2015-03-02'
+endDate = '2015-03-08'
+
 #读取配置文件
 config = ConfigParser.ConfigParser()
 config.readfp(open("config.ini"), "rb")
@@ -18,6 +22,9 @@ projectName = config.get("global", "projectName")
 host = config.get("global", "host")
 
 def getLastWeekDate():
+	global startDate
+	global endDate
+
 	today = datetime.date.today()
 	startDate = today + datetime.timedelta(-7 - today.weekday()) #获取上周一的日期
 	endDate = startDate + datetime.timedelta(6)
@@ -77,8 +84,9 @@ def parsePage():
 		addProject()
 	#根据之前添加的项目id和inputtext_timesheet获取输入框的id：
 	response = sendToServer('mywork/timesheet/initTimeSheetAction.do', form_data)
-	inputIDs = re.findall('name="(rw_gx.*?' + projectID + '.*?)".*inputtext', response.content)
-	bizTravelInputIDs = re.findall('name="(rw_gx.*?' + bizTravelID + '.*?)".*inputtext', response.content)
+	soup = BeautifulSoup(response.content)
+	inputIDs = [x.get('name') for x in soup.findAll(name="input", attrs={"name": re.compile(projectID), "class" : re.compile("inputtext")})]
+	bizTravelInputIDs = [x.get('name') for x in soup.findAll(name="input", attrs={"name": re.compile(bizTravelID), "class" : re.compile("inputtext")})]
 	
 	#填写出差工时
 	bizHoursMap = {}
@@ -127,9 +135,10 @@ def parsePage():
 #除了保存，还要确认提交, 做一个菜单选择
 
 if __name__ == '__main__':
-	getLastWeekDate()
+	#getLastWeekDate()
 	print "按任意键开始自动填写上周工时"
 	raw_input()
 	
 	login()
+	print "start:" + startDate + " end:" + endDate + " project:" + projectID
 	parsePage()
