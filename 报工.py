@@ -9,8 +9,8 @@ s = requests.session()
 bizTravelID = "1321_16645" #出差项目编号，报工页面写死的
 
 #测试临时用
-startDate = '2015-03-02'
-endDate = '2015-03-08'
+#startDate = '2015-03-02'
+#endDate = '2015-03-08'
 
 #读取配置文件
 config = ConfigParser.ConfigParser()
@@ -31,8 +31,8 @@ def getLastWeekDate():
 	print "报工开始日期: " + str(startDate) +  " 报工结束日期: " + str(endDate)
 	
 
-def sendToServer(path, form_data, desc="undefined"):
-	response = s.post(host + path, data = form_data)
+def sendToServer(path, form_data, desc="undefined", params=""):
+	response = s.post(host + path, data = form_data, params = params)
 	if cmp(desc, "undefined") == 0:
 		return response
 
@@ -68,7 +68,9 @@ def addBizTravel():
 	<RowData><name>出差（正常栏填0.1）</name><NodeData nodeid="T_1321_16645_4408" nodetypeid="1321_16645_4408" image="29" />
 	<CellData><Cell colid="ck" type="boolean">True</Cell><Cell colid="t1" /><Cell colid="t2" /></CellData></RowData>
 	</TableData></TreeTable>'''
-	sendToServer('mywork/timesheet/addMyTaskAction.do?startDate=' + startDate + '&endDate=' + endDate, xml_data, "添加出差")
+	params = {'startDate': startDate, 'endDate': endDate}
+	#sendToServer('mywork/timesheet/addMyTaskAction.do?startDate=' + startDate + '&endDate=' + endDate, xml_data, "添加出差")
+	sendToServer('mywork/timesheet/addMyTaskAction.do', xml_data, "添加出差", params)
 
 #查看报工页面
 def parsePage():
@@ -135,10 +137,9 @@ def parsePage():
 #除了保存，还要确认提交, 做一个菜单选择
 
 if __name__ == '__main__':
-	#getLastWeekDate()
-	print "按任意键开始自动填写上周工时"
+	getLastWeekDate()
+	print "按回车键开始自动填写上周工时"
 	raw_input()
 	
 	login()
-	print "start:" + startDate + " end:" + endDate + " project:" + projectID
 	parsePage()
