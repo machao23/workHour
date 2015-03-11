@@ -1,24 +1,27 @@
 #encoding=cp936
 import ConfigParser
 import datetime
+import random
 import re
 import requests
 from BeautifulSoup import BeautifulSoup
 
 s = requests.session()
 bizTravelID = "1321_16645" #出差项目编号，报工页面写死的
-
-#测试临时用
-#startDate = '2015-03-02'
-#endDate = '2015-03-08'
+WORK_HOURS = 7.9
+OT_WORK_HOURS = 4
+NORMAL_TYPE = 0
+OT_TYPE = 1
 
 #读取配置文件
 config = ConfigParser.ConfigParser()
-config.readfp(open("config.ini"), "rb")
+config.read("config.ini")
 userName = config.get("global", "userName")
 passWord = config.get("global", "passWord")
 projectID = config.get("global", "projectID")
-projectName = config.get("global", "projectName")
+projectNames = config.get("global", "projectName").split(',')
+projectCnt = len(projectNames)
+inputIDs = []
 host = config.get("global", "host")
 
 def getLastWeekDate():
@@ -52,7 +55,7 @@ def login():
 	sendToServer('loginAction.do', login_data, "登陆")
 
 #增加工作项
-def addProject():
+def addProject(projectName):
 	form_data={'action':'addmyworkdes',
 		'startDate': startDate,
 		'endDate': endDate,
@@ -82,15 +85,22 @@ def parsePage():
 	#查看出差一栏是否已添加:
 	if bizTravelID not in response.content:
 		addBizTravel()
-	if projectName not in response.content:
-		addProject()
+    #查看项目一栏是否添加
+	for projectName in projectNames:
+		if projectName not in response.content:
+			addProject(projectName)
+
 	#根据之前添加的项目id和inputtext_timesheet获取输入框的id：
 	response = sendToServer('mywork/timesheet/initTimeSheetAction.do', form_data)
 	soup = BeautifulSoup(response.content)
 	inputIDs = [x.get('name') for x in soup.findAll(name="input", attrs={"name": re.compile(projectID), "class" : re.compile("inputtext")})]
+	fillWorkHour(inputIDs)
+
 	bizTravelInputIDs = [x.get('name') for x in soup.findAll(name="input", attrs={"name": re.compile(bizTravelID), "class" : re.compile("inputtext")})]
+	fillTravelHour(bizTravelInputIDs)
 	
-	#填写出差工时
+#填写出差工时
+def fillTravelHour(bizTravelInputIDs):
 	bizHoursMap = {}
 	bizHoursMap['startDate'] = startDate
 	bizHoursMap['endDate'] = endDate
@@ -107,37 +117,86 @@ def parsePage():
 			bizHoursMap[bizID] = '0.1'
 	response = sendToServer('mywork/timesheet/saveTimeSheetAction.do',  bizHoursMap)
 	
-	#填写普通报工
+#根据项目数随机分配工时
+def decomposition(remainHour):
+	cnt = projectCnt
+	while cnt > 0:
+		if cnt == 1:
+			yield round(remainHour, 1)
+		else:
+			n = round(random.uniform(0, remainHour), 1)
+			yield n
+			remainHour -= n
+		cnt -= 1
+
+#获取最后一位字符
+def getLastChar(s):
+	return s[-1]
+
+#获取工时
+def getHour(hours, index, workType):
+	origin_index = index
+	if origin_index >= projectCnt:
+		origin_index = 0
+		index = 0
+		if workType == NORMAL_TYPE:
+			hours = list(decomposition(WORK_HOURS)) 
+		else:
+			hours = list(decomposition(OT_WORK_HOURS))
+	index += 1
+
+	try:
+		hour = hours[origin_index]
+		print "index:", index, " hour:", hour, " hours:", hours
+	except IndexError:
+		hour = ''
+	return (hours, hour, index)
+
+#填写普通报工
+def fillWorkHour(inputIDs):
+	pttList = []
 	workHoursMap = {}
 	workHoursMap['startDate'] = startDate
 	workHoursMap['endDate'] = endDate
-	first_flag = True
-	for inputID in inputIDs:
-		if first_flag:
-			first_flag = False
-			pattern = re.compile('(' + projectID + '.*)_')
-			workHoursMap['ptt'] = pattern.search(inputID).groups()[0]
+
+	cnt = 0
+	hourIndex = 0
+	otHourIndex = 0
+	hours = list(decomposition(WORK_HOURS))
+	otHours = list(decomposition(OT_WORK_HOURS))
+
+	for inputID  in sorted(inputIDs, key=getLastChar):
+		if cnt < projectCnt:
+			if "gxot" not in inputID:
+				pattern = re.compile('(' + projectID + '.*)_')
+				pttList.append(pattern.search(inputID).groups()[0])
+				cnt += 1
 	
 		if cmp(inputID[-1], '5') == 0 or cmp(inputID[-1], '6') == 0: #周末的情况
 			if "gxot" in inputID: #加班工时
-				workHours = '7.9'
+				(otHours, workHour, otHourIndex) = getHour(otHours, otHourIndex, NORMAL_TYPE)
 			else:
-				workHours = ''
+				workHour = ''
 		else:
 			if "gxot" in inputID:
-				workHours = '4'
+				(otHours, workHour, otHourIndex) = getHour(otHours, otHourIndex, OT_TYPE)
 			else:
-				workHours = '7.9'
+				(hours, workHour, hourIndex) = getHour(hours, hourIndex, NORMAL_TYPE)
 			
-		workHoursMap[inputID] = workHours
+		workHoursMap[inputID] = workHour
 	
-	response = sendToServer('mywork/timesheet/saveTimeSheetAction.do',  workHoursMap)
-	print response.content
+	for ptt in pttList:
+		workHoursMap['ptt'] = ptt
+		response = sendToServer('mywork/timesheet/saveTimeSheetAction.do',  workHoursMap)
+	#print response.content
 
 #除了保存，还要确认提交, 做一个菜单选择
 
 if __name__ == '__main__':
-	getLastWeekDate()
+	#测试
+	#getLastWeekDate()
+	startDate = '2015-3-9'
+	endDate = '2015-3-15'
 	print "按回车键开始自动填写上周工时"
 	raw_input()
 	
