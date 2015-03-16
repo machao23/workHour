@@ -41,6 +41,14 @@ def sendToServer(path, form_data, desc="undefined", params=""):
 
 	if cmp(response.content, "success") == 0:
 		print desc + "成功"
+	elif response.content == "PasswordOutOfDate": #登陆密码超时
+		form_data = {'loginName': userName,
+			'oldPassword': passWord,
+			'password': passWord,
+			'password1': passWord,
+			'action':'resetPassword',
+		}
+		sendToServer('forgetPasswordAction.do', form_data, '重置密码');
 	else:
 		print desc + "失败"
 		print response.content
@@ -85,7 +93,7 @@ def parsePage():
 	#查看出差一栏是否已添加:
 	if bizTravelID not in response.content:
 		addBizTravel()
-    #查看项目一栏是否添加
+	#查看项目一栏是否添加
 	for projectName in projectNames:
 		if projectName not in response.content:
 			addProject(projectName)
@@ -111,7 +119,7 @@ def fillTravelHour(bizTravelInputIDs):
 			pattern = re.compile('(' + bizTravelID + '.*)_')
 			bizHoursMap['ptt'] = pattern.search(bizID).groups()[0]
 	
-		if "gxot" in bizID:
+		if isOtWork(bizID):
 			bizHoursMap[bizID] = ''
 		else:
 			bizHoursMap[bizID] = '0.1'
@@ -152,6 +160,13 @@ def getHour(hours, index, workType):
 		hour = ''
 	return (hours, hour, index)
 
+#判断是否加班列
+def isOtWork(content):
+	if "gxot" in content:
+		return True
+	else:
+		return False
+
 #填写普通报工
 def fillWorkHour(inputIDs):
 	pttList = []
@@ -167,18 +182,18 @@ def fillWorkHour(inputIDs):
 
 	for inputID  in sorted(inputIDs, key=getLastChar):
 		if cnt < projectCnt:
-			if "gxot" not in inputID:
+			if isOtWork(inputID) == False:
 				pattern = re.compile('(' + projectID + '.*)_')
 				pttList.append(pattern.search(inputID).groups()[0])
 				cnt += 1
 	
 		if cmp(inputID[-1], '5') == 0 or cmp(inputID[-1], '6') == 0: #周末的情况
-			if "gxot" in inputID: #加班工时
+			if isOtWork(inputID):
 				(otHours, workHour, otHourIndex) = getHour(otHours, otHourIndex, NORMAL_TYPE)
 			else:
 				workHour = ''
 		else:
-			if "gxot" in inputID:
+			if isOtWork(inputID):
 				(otHours, workHour, otHourIndex) = getHour(otHours, otHourIndex, OT_TYPE)
 			else:
 				(hours, workHour, hourIndex) = getHour(hours, hourIndex, NORMAL_TYPE)
@@ -193,10 +208,10 @@ def fillWorkHour(inputIDs):
 #除了保存，还要确认提交, 做一个菜单选择
 
 if __name__ == '__main__':
+	getLastWeekDate()
 	#测试
-	#getLastWeekDate()
-	startDate = '2015-3-9'
-	endDate = '2015-3-15'
+	#startDate = '2015-3-9'
+	#endDate = '2015-3-15'
 	print "按回车键开始自动填写上周工时"
 	raw_input()
 	
