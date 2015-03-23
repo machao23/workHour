@@ -5,6 +5,7 @@ import random
 import re
 import requests
 from BeautifulSoup import BeautifulSoup
+import PAMIE
 
 s = requests.session()
 bizTravelID = "1321_16645" #出差项目编号，报工页面写死的
@@ -20,17 +21,21 @@ userName = config.get("global", "userName")
 passWord = config.get("global", "passWord")
 projectID = config.get("global", "projectID")
 projectNames = config.get("global", "projectName").split(',')
+host = config.get("global", "host")
 projectCnt = len(projectNames)
 inputIDs = []
-host = config.get("global", "host")
+
+base_form = {}
 
 def getLastWeekDate():
 	global startDate
 	global endDate
+	global base_form
 
 	today = datetime.date.today()
 	startDate = today + datetime.timedelta(-7 - today.weekday()) #获取上周一的日期
 	endDate = startDate + datetime.timedelta(6)
+	base_form = {'startDate': startDate, 'endDate': endDate}
 	print "报工开始日期: " + str(startDate) +  " 报工结束日期: " + str(endDate)
 	
 
@@ -51,7 +56,7 @@ def sendToServer(path, form_data, desc="undefined", params=""):
 		sendToServer('forgetPasswordAction.do', form_data, '重置密码');
 	else:
 		print desc + "失败"
-		print response.content
+		print response.content.decode('utf-8')
 		exit()
 
 #登录
@@ -65,10 +70,9 @@ def login():
 #增加工作项
 def addProject(projectName):
 	form_data={'action':'addmyworkdes',
-		'startDate': startDate,
-		'endDate': endDate,
 		'taskName': projectName,
 		'projectID':projectID,}
+	form_data.update(base_form)
 	sendToServer('mywork/timesheet/addMyWorkDesAction.do', form_data, "添加项目" + projectName)
 
 #添加出差
@@ -80,16 +84,11 @@ def addBizTravel():
 	<CellData><Cell colid="ck" type="boolean">True</Cell><Cell colid="t1" /><Cell colid="t2" /></CellData></RowData>
 	</TableData></TreeTable>'''
 	params = {'startDate': startDate, 'endDate': endDate}
-	#sendToServer('mywork/timesheet/addMyTaskAction.do?startDate=' + startDate + '&endDate=' + endDate, xml_data, "添加出差")
 	sendToServer('mywork/timesheet/addMyTaskAction.do', xml_data, "添加出差", params)
 
 #查看报工页面
 def parsePage():
-	form_data={
-		'startDate': startDate, 
-		'endDate': endDate,
-	}
-	response = sendToServer('mywork/timesheet/initTimeSheetAction.do', form_data)
+	response = sendToServer('mywork/timesheet/initTimeSheetAction.do', base_form)
 	#查看出差一栏是否已添加:
 	if bizTravelID not in response.content:
 		addBizTravel()
@@ -99,7 +98,7 @@ def parsePage():
 			addProject(projectName)
 
 	#根据之前添加的项目id和inputtext_timesheet获取输入框的id：
-	response = sendToServer('mywork/timesheet/initTimeSheetAction.do', form_data)
+	response = sendToServer('mywork/timesheet/initTimeSheetAction.do', base_form)
 	soup = BeautifulSoup(response.content)
 	inputIDs = [x.get('name') for x in soup.findAll(name="input", attrs={"name": re.compile(projectID), "class" : re.compile("inputtext")})]
 	fillWorkHour(inputIDs)
@@ -110,8 +109,7 @@ def parsePage():
 #填写出差工时
 def fillTravelHour(bizTravelInputIDs):
 	bizHoursMap = {}
-	bizHoursMap['startDate'] = startDate
-	bizHoursMap['endDate'] = endDate
+	bizHoursMap.update(base_form)
 	firstFlag = True
 	for bizID in bizTravelInputIDs:
 		if firstFlag:
@@ -155,7 +153,6 @@ def getHour(hours, index, workType):
 
 	try:
 		hour = hours[origin_index]
-		print "index:", index, " hour:", hour, " hours:", hours
 	except IndexError:
 		hour = ''
 	return (hours, hour, index)
@@ -171,8 +168,7 @@ def isOtWork(content):
 def fillWorkHour(inputIDs):
 	pttList = []
 	workHoursMap = {}
-	workHoursMap['startDate'] = startDate
-	workHoursMap['endDate'] = endDate
+	workHoursMap.update(base_form)
 
 	cnt = 0
 	hourIndex = 0
@@ -205,7 +201,9 @@ def fillWorkHour(inputIDs):
 		response = sendToServer('mywork/timesheet/saveTimeSheetAction.do',  workHoursMap)
 	#print response.content
 
-#除了保存，还要确认提交, 做一个菜单选择
+def openPageByIE():
+	url = host + 'mywork/timesheet/saveTimeSheetAction.do' + '?startDate=' + str(startDate) + '&endDate=' + str(endDate)
+	PAMIE.openWorkHourPage(url)
 
 if __name__ == '__main__':
 	getLastWeekDate()
@@ -217,3 +215,6 @@ if __name__ == '__main__':
 	
 	login()
 	parsePage()
+
+	#打开报工页面人工核实提交
+	openPageByIE()
