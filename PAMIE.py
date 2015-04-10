@@ -2,6 +2,7 @@
 import cPAMIE
 from time import sleep
 
+
 def open_work_hour_page(url):
     ie = cPAMIE.PAMIE()
     ie.navigate('http://vp.csii.com.cn/project/login.jsp')
