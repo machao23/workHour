@@ -11,6 +11,3 @@ def open_work_hour_page(url):
     ie.imageClick(0)
     sleep(1)
     ie.navigate(url)
-
-if __name__ == '__main__':
-    open_work_hour_page()
