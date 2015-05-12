@@ -1,11 +1,13 @@
 # encoding=cp936
 import ConfigParser
+import PAMIE
 import datetime
 import random
 import re
 import requests
+import sys
+import types
 from BeautifulSoup import BeautifulSoup
-import PAMIE
 
 s = requests.session()
 bizTravelID = "1321_16645"  # 出差项目编号，报工页面写死的
@@ -24,20 +26,36 @@ project_names = config.get("global", "projectName").split(',')
 projectCnt = len(project_names)
 host = config.get("global", "host")
 holidays = config.get("global", "holidays").split(',')
+
+# 全局变量
 input_ids = []
 base_form = {}
+submit_forms = []
 
 
-def get_last_week_date():
+def validate(date_text):
+    try:
+        return datetime.datetime.strptime(date_text, '%Y%m%d')
+    except ValueError:
+        raise ValueError("Incorrect data format, should be YYYYMMDD")
+
+
+def get_week_range(req_date, offset=0): # offset是指和本周差几周
     global startDate
     global endDate
     global base_form
 
-    today = datetime.date.today()
-    startDate = today + datetime.timedelta(-7 - today.weekday())  # 获取上周一的日期
+    if type(req_date) is types.StringType:
+        req_date = validate(req_date)
+    startDate = req_date - datetime.timedelta(req_date.weekday() + offset * 7)
     endDate = startDate + datetime.timedelta(6)
     base_form = {'startDate': startDate, 'endDate': endDate}
     print u"报工开始日期: " + str(startDate) + u" 报工结束日期: " + str(endDate)
+
+
+def get_last_week_date():
+    today = datetime.date.today()
+    get_week_range(today, 1)
 
 
 def send_to_server(path, form_data, desc="undefined", params=None):
@@ -57,7 +75,7 @@ def send_to_server(path, form_data, desc="undefined", params=None):
         }
         send_to_server('forgetPasswordAction.do', form_data, u'重置密码')
     else:
-        print desc + "失败"
+        print desc + u"失败"
         print response.content.decode('gbk')
         exit()
 
@@ -79,7 +97,7 @@ def add_project(project_name):
         'taskName': project_name,
         'projectID': projectID}
     form_data.update(base_form)
-    send_to_server('mywork/timesheet/addMyWorkDesAction.do', form_data, "添加项目" + project_name)
+    send_to_server('mywork/timesheet/addMyWorkDesAction.do', form_data, u"添加项目" + project_name.decode('GBK'))
 
 
 # 添加出差
@@ -94,12 +112,15 @@ def add_biz_travel():
         'nodetypeid="1321_16645_4408" image="29" />'
         '<CellData><Cell colid="ck" type="boolean">True</Cell><Cell colid="t1" />'
         '<Cell colid="t2" /></CellData></RowData>'
-        '</TableData></TreeTable>)')
+        '</TableData></TreeTable>')
+    print xml_data
     params = {'startDate': startDate, 'endDate': endDate}
-    send_to_server('mywork/timesheet/addMyTaskAction.do', xml_data, "添加出差", params)
+    send_to_server('mywork/timesheet/addMyTaskAction.do', xml_data, u"添加出差", params)
 
 
 def get_week_of_day(desc):
+    if desc is None:
+        return None
     week_of_day = {
         u'星期一': '0',
         u'星期二': '1',
@@ -212,6 +233,7 @@ def is_ot_work(content):
 
 # 填写出差工时
 def fill_travel_hour(biz_travel_input_ids, holidays_arg=set()):
+    global submit_forms
     biz_hours_map = {}
     biz_hours_map.update(base_form)
     first_flag = True
@@ -230,10 +252,12 @@ def fill_travel_hour(biz_travel_input_ids, holidays_arg=set()):
         else:
             biz_hours_map[bizID] = '0.1'
     send_to_server('mywork/timesheet/saveTimeSheetAction.do',  biz_hours_map)
+    submit_forms.append(biz_hours_map)
 
 
 # 填写普通报工
 def fill_work_hour(input_ids_arg, holidays_set=set()):
+    global submit_forms
     ptt_list = []
     work_hours_map = {}
     work_hours_map.update(base_form)
@@ -270,24 +294,56 @@ def fill_work_hour(input_ids_arg, holidays_set=set()):
     for ptt in ptt_list:
         work_hours_map['ptt'] = ptt
         send_to_server('mywork/timesheet/saveTimeSheetAction.do',  work_hours_map)
-        # print response.content
+        submit_forms.append(work_hours_map)
 
 
 def open_page_by_ie():
-    url = host + 'mywork/timesheet/saveTimeSheetAction.do' + '?startDate=' + str(startDate) + '&endDate=' + str(endDate)
-    PAMIE.open_work_hour_page(url)
+    url = host + ('mywork/timesheet/timeSheetMenuCardAction.do'
+                  '?timeSheetFlag=person&sub=user-defined&startDate=' +
+                  str(startDate) + '&endDate=' + str(endDate))
+    PAMIE.open_work_hour_page(url, userName, passWord)
+
+
+def query_yes_no(question, default="yes"):
+    valid = {"yes": True, "y": True, "no": False, "n": False}
+    if default is None:
+        prompt = " [y/n] "
+    elif default == "yes": #用大写来表示默认值
+        prompt = " [Y/n] "
+    elif default == "no":
+        prompt = " [y/N] "
+    else:
+        raise ValueError("invalid default answer: '%s'" % default)
+
+    while True:
+        sys.stdout.write(question + prompt)
+        choice = raw_input().lower()
+        if default is not None and choice == '':
+            return valid[default]
+        elif choice in valid:
+            return valid[choice]
+        else:
+            sys.stdout.write("Please respond with 'yes' or 'no' "
+                             "(or 'y' or 'n').\n")
+
+
+
 
 if __name__ == '__main__':
-    # get_last_week_date()
     # TEST
-    startDate = '2015-04-06'
-    endDate = '2015-04-12'
-    base_form = {'startDate': startDate, 'endDate': endDate}
-    print u"按回车键开始自动填写上周工时"
-    raw_input()
+    # startDate = '2015-04-27'
+    # endDate = '2015-05-03'
+    # base_form = {'startDate': startDate, 'endDate': endDate}
+    get_last_week_date()
+    if not query_yes_no(u"开始上周报工吗"):
+        print u"请输入要报工的日期yyyymmdd:"
+        input_date = raw_input()
+        get_week_range(input_date)
 
     login()
     parse_page()
 
     # 打开报工页面人工核实提交
     open_page_by_ie()
+
+    # submit()
