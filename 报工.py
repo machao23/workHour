@@ -19,8 +19,10 @@ OT_TYPE = 1
 # 读取配置文件
 config = ConfigParser.ConfigParser()
 config.read("config.ini")
-userName = config.get("global", "userName")
-passWord = config.get("global", "passWord")
+userName = ""
+passWord = ""
+userNames = config.get("global", "userName").split(',')
+passWords = config.get("global", "passWord").split(',')
 projectID = config.get("global", "projectID")
 project_names = config.get("global", "projectName").split(',')
 projectCnt = len(project_names)
@@ -330,20 +332,24 @@ def query_yes_no(question, default="yes"):
 
 
 if __name__ == '__main__':
-    # TEST
-    # startDate = '2015-04-27'
-    # endDate = '2015-05-03'
-    # base_form = {'startDate': startDate, 'endDate': endDate}
     get_last_week_date()
     if not query_yes_no(u"开始上周报工吗"):
         print u"请输入要报工的日期yyyymmdd:"
         input_date = raw_input()
         get_week_range(input_date)
 
-    login()
-    parse_page()
+    
+    for i in xrange(len(userNames)):
+        if i > 0:
+            query_yes_no(u"开始对下一个用户报工:" + userName)
+        userName = userNames[i]
+        passWord = passWords[i]
 
-    # 打开报工页面人工核实提交
-    open_page_by_ie()
+        print "UserNames=", userNames
+        print "UserName=", userName
+        login()
+        parse_page()
 
-    # submit()
+        # 打开报工页面人工核实提交
+        open_page_by_ie()
+
