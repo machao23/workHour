@@ -1,3 +1,4 @@
+#!python2.7.exe
 # encoding=cp936
 import ConfigParser
 import PAMIE
@@ -65,20 +66,21 @@ def send_to_server(path, form_data, desc="undefined", params=None):
     if cmp(desc, "undefined") == 0:
         return response
 
-    if cmp(response.content, "success") == 0:
+    if cmp(response.content, "success") == 0 or response.status_code == 302 or response.status_code == 200:
         print desc + u"成功"
     elif response.content == "PasswordOutOfDate":  # 登陆密码超时
-        form_data = {
+        reset_passwd_form_data = {
             'loginName': userName,
             'oldPassword': passWord,
             'password': passWord,
             'password1': passWord,
             'action': 'resetPassword',
         }
-        send_to_server('forgetPasswordAction.do', form_data, u'重置密码')
+        send_to_server('forgetPasswordAction.do', reset_passwd_form_data, u'重置密码')
     else:
         print desc + u"失败"
         print response.content.decode('gbk')
+        print response.status_code, response.url
         exit()
 
 
@@ -340,10 +342,10 @@ if __name__ == '__main__':
 
     
     for i in xrange(len(userNames)):
-        if i > 0:
-            query_yes_no(u"开始对下一个用户报工:" + userName)
         userName = userNames[i]
         passWord = passWords[i]
+        if i > 0:
+            query_yes_no(u"开始对下一个用户报工:" + userName)
 
         print "UserNames=", userNames
         print "UserName=", userName
