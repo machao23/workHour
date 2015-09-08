@@ -303,9 +303,10 @@ def fill_work_hour(input_ids_arg, holidays_set=set(), workdays_set=set()):
                 ptt_list.append(pattern.search(inputID).groups()[0])
                 cnt += 1
 
-        if inputID in holidays_set or \
-            (inputID not in workdays_set and \
-            cmp(inputID[-1], get_week_of_day(u'星期六')) == 0 or cmp(inputID[-1], get_week_of_day(u'星期天'))) == 0:
+        if inputID[-1] in holidays_set or \
+            (inputID[-1] not in workdays_set and \
+            (cmp(inputID[-1], get_week_of_day(u'星期六')) == 0 \
+                or cmp(inputID[-1], get_week_of_day(u'星期天')) == 0)):
 
             if is_ot_work(inputID):
                 (ot_hours, work_hour, othour_index) = get_hour(ot_hours, othour_index, NORMAL_TYPE)
