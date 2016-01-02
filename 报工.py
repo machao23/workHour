@@ -1,43 +1,32 @@
 #!python2.7.exe
-# encoding=cp936
+# encoding=utf-8
 import ConfigParser
 import PAMIE
 import datetime
-import logging
-import random
-import re
+import json
 import requests
 import sys
 import types
-from BeautifulSoup import BeautifulSoup
 
 s = requests.session()
-bizTravelID = "1321_16645"  # ³ö²îÏîÄ¿±àºÅ£¬±¨¹¤Ò³ÃæĞ´ËÀµÄ
-WORK_HOURS = 8 #Ä¬ÈÏÊÇ8£¬Èç¹û³ö²îºóÃæ»áÉèÖÃ³É7.9
-OT_WORK_HOURS = 4
-NORMAL_TYPE = 0
-OT_TYPE = 1
 
-# ¶ÁÈ¡ÅäÖÃÎÄ¼ş
+# è¯»å–é…ç½®æ–‡ä»¶
 config = ConfigParser.ConfigParser()
 config.read("config.ini")
 userName = ""
 passWord = ""
+WORK_HOURS = config.get("global", "WorkTime")
 userNames = config.get("global", "userName").split(',')
 passWords = config.get("global", "passWord").split(',')
 projectID = config.get("global", "projectID")
-project_names = config.get("global", "projectName").split(',')
-projectCnt = len(project_names)
-host = config.get("global", "host")
+projectDesc = config.get("global", "projectDesc")
+projectType = config.get("global", "projectType")
+projectTypeDesc = config.get("global", "projectTypeDesc")
+Context = config.get("global", "Context")
+host = config.get("global", "ip_host")
 holidays = config.get("global", "holidays").split(',')
 workdays = config.get("global", "workdays").split(',')
 isTravel = config.get('global', 'isTravel')
-
-# È«¾Ö±äÁ¿
-input_ids = []
-base_form = {}
-submit_forms = []
-logger = ""
 
 
 def validate(date_text):
@@ -47,7 +36,7 @@ def validate(date_text):
         raise ValueError("Incorrect data format, should be YYYYMMDD")
 
 
-def get_week_range(req_date, offset=0): # offsetÊÇÖ¸ºÍ±¾ÖÜ²î¼¸ÖÜ
+def get_week_range(req_date, offset=0): # offsetæ˜¯æŒ‡å’Œæœ¬å‘¨å·®å‡ å‘¨
     global startDate
     global endDate
     global base_form
@@ -57,147 +46,93 @@ def get_week_range(req_date, offset=0): # offsetÊÇÖ¸ºÍ±¾ÖÜ²î¼¸ÖÜ
     startDate = req_date - datetime.timedelta(req_date.weekday() + offset * 7)
     endDate = startDate + datetime.timedelta(6)
     base_form = {'startDate': startDate, 'endDate': endDate}
-    print u"±¨¹¤¿ªÊ¼ÈÕÆÚ: " + str(startDate) + u" ±¨¹¤½áÊøÈÕÆÚ: " + str(endDate)
+    print u"æŠ¥å·¥å¼€å§‹æ—¥æœŸ: " + str(startDate) + u" æŠ¥å·¥ç»“æŸæ—¥æœŸ: " + str(endDate)
 
 
-def get_last_week_date():
-    today = datetime.date.today()
-    get_week_range(today, 1)
-
-
-def send_to_server(path, form_data, desc="undefined", params=None):
-    response = s.post(host + path, data=form_data, params=params)
+def send_to_server(url, data, desc="undefined", params=None, headers=None):
+    global host
+    response = s.post(host + url, data=data, params=params, headers=headers)
     if cmp(desc, "undefined") == 0:
         return response
 
-    if cmp(response.content, "success") == 0 or response.status_code == 302 or response.status_code == 200:
-        print response.content.decode('gbk')
-        print desc + u"³É¹¦"
-    elif response.content == "PasswordOutOfDate":  # µÇÂ½ÃÜÂë³¬Ê±
-        reset_passwd_form_data = {
-            'loginName': userName,
-            'oldPassword': passWord,
-            'password': passWord,
-            'password1': passWord,
-            'action': 'resetPassword',
-        }
-        send_to_server('forgetPasswordAction.do', reset_passwd_form_data, u'ÖØÖÃÃÜÂë')
+    elif cmp(response.content, "success") == 0 or response.status_code == 302 or response.status_code == 200:
+        return response
     else:
-        print desc + u"Ê§°Ü"
-        print response.content.decode('gbk')
+        print desc + u"å¤±è´¥"
+        print response.content.decode('utf-8')
         print response.status_code, response.url
         exit()
 
 
-# µÇÂ¼
+# ç™»å½•
 def login():
     login_data = {
-        'loginName': userName,
+        'loginid': userName,
         'password': passWord,
-        'action': 'checkOnline',
     }
-    send_to_server('loginAction.do', login_data, u"µÇÂ½")
+    response = send_to_server('timesheet/login.json', login_data, u"ç™»é™†")
+    if u"æˆåŠŸ" not in response.text:
+        print response.text
 
 
-# Ôö¼Ó¹¤×÷Ïî
-def add_project(project_name):
-    form_data = {
-        'action': 'addmyworkdes',
-        'taskName': project_name,
-        'projectID': projectID}
-    form_data.update(base_form)
-    send_to_server('mywork/timesheet/addMyWorkDesAction.do', form_data, u"Ìí¼ÓÏîÄ¿" + project_name.decode('GBK'))
+# åˆ¤æ–­æ˜¯ä¸æ˜¯å·¥ä½œæ—¥
+def is_workday(date):
+    day_of_week = date.weekday() + 1
+    if day_of_week == 6 or day_of_week == 7:
+        return False
+    else:
+        return True
 
 
-# Ìí¼Ó³ö²î
-def add_biz_travel():
-    xml_data = (
-        '<?xml version="1.0" encoding="gb2312"?>'
-        '<TreeTable xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
-        'xsi:noNamespaceSchemaLocation="TreeTable.xsd" high="20" width="125" '
-        'color="black" detailable="true" standardmenu="true">'
-        '<TableData>'
-        '<RowData><name>³ö²î£¨Õı³£À¸Ìî0.1£©</name><NodeData nodeid="T_1321_16645_4408" '
-        'nodetypeid="1321_16645_4408" image="29" />'
-        '<CellData><Cell colid="ck" type="boolean">True</Cell><Cell colid="t1" />'
-        '<Cell colid="t2" /></CellData></RowData>'
-        '</TableData></TreeTable>')
-    print xml_data
-    params = {'startDate': startDate, 'endDate': endDate}
-    send_to_server('mywork/timesheet/addMyTaskAction.do', xml_data, u"Ìí¼Ó³ö²î", params)
-
-
-def get_week_of_day(desc):
-    if desc is None:
-        return None
-    week_of_day = {
-        u'ĞÇÆÚÒ»': '0',
-        u'ĞÇÆÚ¶ş': '1',
-        u'ĞÇÆÚÈı': '2',
-        u'ĞÇÆÚËÄ': '3',
-        u'ĞÇÆÚÎå': '4',
-        u'ĞÇÆÚÁù': '5',
-        u'ĞÇÆÚÌì': '6',
+# ç»„è£…è¯·æ±‚æŠ¥æ–‡
+def pack_request(date):
+    return {
+        "events": [
+            {
+                "title": projectDesc,
+                "start": date.strftime("%Y-%m-%d"),
+                "end": None,
+                "className": [
+                    "b-l b-2x b-info"
+                ],
+                "ProId": {
+                    "keyColumn": projectID,
+                    "valueColumn": projectDesc
+                },
+                "TSTypeId": {
+                    "keyColumn": "1",
+                    "valueColumn": projectTypeDesc
+                },
+                "LeaveTypeId": "",
+                "IsTravel": True,
+                "WorkTime": (is_workday(date) and 8) or 0,
+                "DelayTime": (is_workday(date) and 4) or 8,
+                "Context": Context,
+                "_id": 1
+            }
+        ]
     }
-    return week_of_day.get(desc[:3])
 
 
-def get_holiday_week_of_day(page):
-    result = set()
-    for holiday in holidays:
-        result.add(get_week_of_day(page.find(name="td", text=re.compile(holiday))))
-    return result
-
-def get_workday_week_of_day(page):
-    result = set()
-    for workday in workdays:
-        result.add(get_week_of_day(page.find(name="td", text=re.compile(workday))))
-    return result
-
-# ²é¿´±¨¹¤Ò³Ãæ
-def parse_page():
-    global input_ids
+# æŸ¥çœ‹æŠ¥å·¥é¡µé¢
+def parse_page(start, end):
     global WORK_HOURS
     global isTravel
-    global logger
 
-    response = send_to_server('mywork/timesheet/initTimeSheetAction.do', base_form)
-    # ²é¿´³ö²îÒ»À¸ÊÇ·ñÒÑÌí¼Ó:
-    if isTravel == "True" and bizTravelID not in response.content:
-        add_biz_travel()
-    # ²é¿´ÏîÄ¿Ò»À¸ÊÇ·ñÌí¼Ó
-    for project_name in project_names:
-        if project_name not in response.content:
-            add_project(project_name)
+    s_date = datetime.datetime.strptime(start, "%Y%m%d")
+    e_date = datetime.datetime.strptime(end, "%Y%m%d")
+    work_date = s_date
+    while work_date <= e_date:
+        request = pack_request(work_date)
+        headers = {'content-type': 'application/json'}
+        response = send_to_server(url='timesheet/calendarSave.json',
+                                  data=json.dumps(request), headers=headers)
+        print work_date.strftime("%Y-%m-%d"), "æŠ¥å·¥ç»“æœ:", response.content.decode('utf-8')
 
-    response = send_to_server('mywork/timesheet/initTimeSheetAction.do', base_form)
-    soup = BeautifulSoup(response.content, fromEncoding="GBK")
-    #logger.info(response.content)
-
-    # ²é¿´ÊÇ·ñÅäÖÃÎÄ¼şÈç¹ûÓĞ½Ú¼ÙÈÕÈÕÆÚ£¬²»Ìî¹¤Ê±:
-    holidays = get_holiday_week_of_day(soup)
-    workdays = get_workday_week_of_day(soup)
-
-    # ¸ù¾İÖ®Ç°Ìí¼ÓµÄÏîÄ¿idºÍinputtext_timesheet»ñÈ¡ÊäÈë¿òµÄid£º
-    input_ids = [x.get('name') for x in soup.findAll(
-        name="input",
-        attrs={
-            "name": re.compile(projectID),
-            "class": re.compile("inputtext")})]
-
-    if isTravel == "True":
-        WORK_HOURS = 7.9
-        biz_travel_input_ids = [x.get('name') for x in soup.findAll(
-            name="input",
-            attrs={
-                "name": re.compile(bizTravelID),
-                "class": re.compile("inputtext")})]
-        fill_travel_hour(biz_travel_input_ids, holidays)
-
-    fill_work_hour(input_ids, holidays, workdays)
+        work_date += datetime.timedelta(days=1)
 
 
-# ÉèÖÃ½Ú¼ÙÈÕµÄÁĞ²»Ìî¹¤Ê±
+# è®¾ç½®èŠ‚å‡æ—¥çš„åˆ—ä¸å¡«å·¥æ—¶
 def filter_holiday(holidays_arg, input_ids_arg, request_form):
     result = []
     for input_id in input_ids_arg:
@@ -205,139 +140,19 @@ def filter_holiday(holidays_arg, input_ids_arg, request_form):
             request_form[input_id] = ''
         else:
             result.append(input_id)
-            
+
     return result, request_form
 
 
-# ¸ù¾İÏîÄ¿ÊıËæ»ú·ÖÅä¹¤Ê±
-def decomposition(remain_hour):
-    cnt = projectCnt
-    while cnt > 0:
-        if cnt == 1:
-            yield round(remain_hour, 1)
-        else:
-            n = round(random.uniform(0, remain_hour), 1)
-            yield n
-            remain_hour -= n
-        cnt -= 1
-
-
-# »ñÈ¡×îºóÒ»Î»×Ö·û
-def get_last_char(string):
-    return string[-1]
-
-
-# »ñÈ¡¹¤Ê±
-def get_hour(hours, index, work_type):
-    origin_index = index
-    if origin_index >= projectCnt:
-        origin_index = 0
-        index = 0
-        if work_type == NORMAL_TYPE:
-            hours = list(decomposition(WORK_HOURS))
-        else:
-            hours = list(decomposition(OT_WORK_HOURS))
-    index += 1
-
-    try:
-        hour = hours[origin_index]
-    except IndexError:
-        hour = ''
-    return hours, hour, index
-
-
-# ÅĞ¶ÏÊÇ·ñ¼Ó°àÁĞ
-def is_ot_work(content):
-    if "gxot" in content:
-        return True
-    else:
-        return False
-
-
-# ÌîĞ´³ö²î¹¤Ê±
-def fill_travel_hour(biz_travel_input_ids, holidays_arg=set()):
-    global submit_forms
-    biz_hours_map = {}
-    biz_hours_map.update(base_form)
-    first_flag = True
-
-    #½Ú¼ÙÈÕÒ²ÒªÌî¹¤Ê±
-    #if holidays:
-        #biz_travel_input_ids, biz_hours_map = filter_holiday(holidays_arg, biz_travel_input_ids, biz_hours_map)
-
-    for bizID in biz_travel_input_ids:
-        if first_flag:
-            first_flag = False
-            pattern = re.compile('(' + bizTravelID + '.*)_')
-            biz_hours_map['ptt'] = pattern.search(bizID).groups()[0]
-
-        if is_ot_work(bizID):
-            biz_hours_map[bizID] = ''
-        else:
-            biz_hours_map[bizID] = '0.1'
-    send_to_server('mywork/timesheet/saveTimeSheetAction.do',  biz_hours_map)
-    submit_forms.append(biz_hours_map)
-
-
-# ÌîĞ´ÆÕÍ¨±¨¹¤
-def fill_work_hour(input_ids_arg, holidays_set=set(), workdays_set=set()):
-    global submit_forms
-    ptt_list = []
-    work_hours_map = {}
-    work_hours_map.update(base_form)
-
-    cnt = 0
-    hour_index = 0
-    othour_index = 0
-    hours = list(decomposition(WORK_HOURS))
-    ot_hours = list(decomposition(OT_WORK_HOURS))
-
-    #½Ú¼ÙÈÕÒ²ÒªÌî¹¤Ê±
-    #if holidays_set:
-        #input_ids_arg, work_hours_map = filter_holiday(holidays_set, input_ids_arg, work_hours_map)
-
-    for inputID in sorted(input_ids_arg, key=get_last_char):
-        if cnt < projectCnt:
-            if not is_ot_work(inputID):
-                pattern = re.compile('(' + projectID + '.*)_')
-                ptt_list.append(pattern.search(inputID).groups()[0])
-                cnt += 1
-
-        if inputID[-1] in holidays_set or \
-            (inputID[-1] not in workdays_set and \
-            (cmp(inputID[-1], get_week_of_day(u'ĞÇÆÚÁù')) == 0 \
-                or cmp(inputID[-1], get_week_of_day(u'ĞÇÆÚÌì')) == 0)):
-
-            if is_ot_work(inputID):
-                (ot_hours, work_hour, othour_index) = get_hour(ot_hours, othour_index, NORMAL_TYPE)
-            else:
-                work_hour = ''
-        else:
-            if is_ot_work(inputID):
-                (ot_hours, work_hour, othour_index) = get_hour(ot_hours, othour_index, OT_TYPE)
-            else:
-                (hours, work_hour, hour_index) = get_hour(hours, hour_index, NORMAL_TYPE)
-
-        work_hours_map[inputID] = work_hour
-
-    for ptt in ptt_list:
-        work_hours_map['ptt'] = ptt
-        send_to_server('mywork/timesheet/saveTimeSheetAction.do',  work_hours_map)
-        submit_forms.append(work_hours_map)
-
-
 def open_page_by_ie():
-    url = host + ('mywork/timesheet/timeSheetMenuCardAction.do'
-                  '?timeSheetFlag=person&sub=user-defined&startDate=' +
-                  str(startDate) + '&endDate=' + str(endDate))
-    PAMIE.open_work_hour_page(url, userName, passWord)
+    PAMIE.open_work_hour_page(host, userName, passWord)
 
 
 def query_yes_no(question, default="yes"):
     valid = {"yes": True, "y": True, "no": False, "n": False}
     if default is None:
         prompt = " [y/n] "
-    elif default == "yes": #ÓÃ´óĞ´À´±íÊ¾Ä¬ÈÏÖµ
+    elif default == "yes":  # ç”¨å¤§å†™æ¥è¡¨ç¤ºé»˜è®¤å€¼
         prompt = " [Y/n] "
     elif default == "no":
         prompt = " [y/N] "
@@ -355,51 +170,24 @@ def query_yes_no(question, default="yes"):
             sys.stdout.write("Please respond with 'yes' or 'no' "
                              "(or 'y' or 'n').\n")
 
-def setLog():
-    global logger
 
-    # ´´½¨Ò»¸ölogger 
-    logger = logging.getLogger('mylogger') 
-    logger.setLevel(logging.DEBUG) 
-       
-    # ´´½¨Ò»¸öhandler£¬ÓÃÓÚĞ´ÈëÈÕÖ¾ÎÄ¼ş 
-    fh = logging.FileHandler('test.log') 
-    fh.setLevel(logging.DEBUG) 
-       
-    # ÔÙ´´½¨Ò»¸öhandler£¬ÓÃÓÚÊä³öµ½¿ØÖÆÌ¨ 
-    ch = logging.StreamHandler() 
-    ch.setLevel(logging.DEBUG) 
-       
-    # ¶¨ÒåhandlerµÄÊä³ö¸ñÊ½ 
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s') 
-    fh.setFormatter(formatter) 
-    ch.setFormatter(formatter) 
-       
-    # ¸øloggerÌí¼Óhandler 
-    logger.addHandler(fh) 
-    logger.addHandler(ch)
 
 
 if __name__ == '__main__':
-    setLog()
-    get_last_week_date()
-    if not query_yes_no(u"¿ªÊ¼ÉÏÖÜ±¨¹¤Âğ"):
-        print u"ÇëÊäÈëÒª±¨¹¤µÄÈÕÆÚyyyymmdd:"
-        input_date = raw_input()
-        get_week_range(input_date)
+    start_date = raw_input(u"è¯·è¾“å…¥è¦æŠ¥å·¥çš„å¼€å§‹æ—¥æœŸyyyymmdd:")
+    end_date = raw_input(u"è¯·è¾“å…¥è¦æŠ¥å·¥çš„ç»“æŸæ—¥æœŸyyyymmdd:")
 
-    
     for i in xrange(len(userNames)):
         userName = userNames[i]
         passWord = passWords[i]
         if i > 0:
-            query_yes_no(u"¿ªÊ¼¶ÔÏÂÒ»¸öÓÃ»§±¨¹¤:" + userName)
+            query_yes_no(u"å¼€å§‹å¯¹ä¸‹ä¸€ä¸ªç”¨æˆ·æŠ¥å·¥:" + userName)
 
         print "UserNames=", userNames
         print "UserName=", userName
         login()
-        parse_page()
+        parse_page(start_date, end_date)
 
-        # ´ò¿ª±¨¹¤Ò³ÃæÈË¹¤ºËÊµÌá½»
-        open_page_by_ie()
+        # æ‰“å¼€æŠ¥å·¥é¡µé¢äººå·¥æ ¸å®æäº¤
+        #open_page_by_ie()
 
