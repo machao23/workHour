@@ -29,26 +29,6 @@ workdays = config.get("global", "workdays").split(',')
 isTravel = config.get('global', 'isTravel')
 
 
-def validate(date_text):
-    try:
-        return datetime.datetime.strptime(date_text, '%Y%m%d')
-    except ValueError:
-        raise ValueError("Incorrect data format, should be YYYYMMDD")
-
-
-def get_week_range(req_date, offset=0): # offset是指和本周差几周
-    global startDate
-    global endDate
-    global base_form
-
-    if type(req_date) is types.StringType:
-        req_date = validate(req_date)
-    startDate = req_date - datetime.timedelta(req_date.weekday() + offset * 7)
-    endDate = startDate + datetime.timedelta(6)
-    base_form = {'startDate': startDate, 'endDate': endDate}
-    print u"报工开始日期: " + str(startDate) + u" 报工结束日期: " + str(endDate)
-
-
 def send_to_server(url, data, desc="undefined", params=None, headers=None):
     global host
     response = s.post(host + url, data=data, params=params, headers=headers)
